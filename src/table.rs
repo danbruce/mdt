@@ -44,22 +44,27 @@ pub trait Table<'a>: TableFns<'a> {
         //     let avg = total_width / self.width();
         // }
 
+        let col_widths = get_ideal_widths(self.width(), &self.table());
+        // println!("Column widths: {:?}", col_widths);
+
         let char_row = |left: char, hor: char, intr: char, right: char, w: &mut W| -> Result<()> {
             write!(w, "{}", left)?;
             for col in 0..self.index() - 1 {
-                let width = self.table()[col].len();
+                // let width = self.table()[col].len();
                 write!(
                     w,
                     "{}{}",
-                    iter::repeat(hor).take(width).collect::<String>(),
+                    iter::repeat(hor).take(col_widths[col]).collect::<String>(),
                     intr
                 )?;
             }
-            let width = self.table()[self.index() - 1].len();
+            // let width = self.table()[self.index() - 1].len();
             write!(
                 w,
                 "{}{}\n",
-                iter::repeat(hor).take(width).collect::<String>(),
+                iter::repeat(hor)
+                    .take(col_widths[col_widths.len() - 1])
+                    .collect::<String>(),
                 right
             )?;
             Ok(())
@@ -77,13 +82,37 @@ pub trait Table<'a>: TableFns<'a> {
         // header row
         write!(w, "{}", Self::H_OUTER_LEFT_VERTICAL)?;
         for col in 0..self.index() - 1 {
-            write!(w, "{}{}", self.table()[col], Self::H_INNER_VERTICAL)?;
+            let pad_count: usize = {
+                let diff: isize = col_widths[col] as isize - self.table()[col].len() as isize - 2;
+                if diff < 0 {
+                    0
+                } else {
+                    diff as usize
+                }
+            };
+            write!(
+                w,
+                " {}{} {}",
+                self.table()[col],
+                iter::repeat(' ').take(pad_count).collect::<String>(),
+                Self::H_INNER_VERTICAL
+            )?;
         }
 
+        let pad_count: usize = {
+            let diff: isize = col_widths[self.index() - 1] as isize
+                - self.table()[self.index() - 1].len() as isize - 2;
+            if diff < 0 {
+                0
+            } else {
+                diff as usize
+            }
+        };
         write!(
             w,
-            "{}{}\n",
+            " {}{} {}\n",
             self.table()[self.index() - 1],
+            iter::repeat(' ').take(pad_count).collect::<String>(),
             Self::H_OUTER_RIGHT_VERTICAL
         )?;
 
@@ -103,12 +132,49 @@ pub trait Table<'a>: TableFns<'a> {
             write!(w, "{}", Self::INNER_VERTICAL)?;
             for col in 0..self.index() - 1 {
                 let idx = pos(row, col);
-                write!(w, "{}{}", self.table()[idx], Self::INNER_VERTICAL)?;
+                let max_text_width = col_widths[col] - 2;
+                let pad_count: usize = {
+                    let text_width: usize = if self.table()[idx].len() > max_text_width {
+                        max_text_width
+                    } else {
+                        self.table()[idx].len()
+                    };
+                    let diff: isize =
+                        col_widths[col] as isize - text_width as isize;
+                    if diff < 0 {
+                        0
+                    } else {
+                        (diff - 2) as usize
+                    }
+                };
+                write!(
+                    w,
+                    " {}{} {}",
+                    if self.table()[idx].len() < col_widths[col] {
+                        self.table()[idx].to_string()
+                    } else {
+                        let mut s = self.table()[idx][0..(max_text_width-3)].to_string();
+                        s.push_str("...");
+                        s
+                    },
+                    iter::repeat(' ').take(pad_count).collect::<String>(),
+                    Self::INNER_VERTICAL
+                )?;
             }
+            let pad_count: usize = {
+                let diff: isize =
+                    col_widths[self.index() - 1] as isize - self.table()[pos(row, self.index() - 1)].len() as isize - 2;
+                if diff < 0 {
+                    0
+                } else {
+                    diff as usize
+                }
+            };
             write!(
                 w,
-                "{}{}\n",
+                " {}{} {}\n",
                 self.table()[pos(row, self.index() - 1)],
+                iter::repeat(' ').take(pad_count).collect::<String>(),
                 Self::INNER_VERTICAL
             )?;
         }
@@ -230,6 +296,31 @@ impl<'a> Table<'a> for AsciiTable<'a> {
     }
 }
 
+fn divide_term_width_lossless(width: usize, cols: usize) -> Vec<usize> {
+    let mut v = Vec::with_capacity(cols);
+    // potentially implement a minimum width instead
+    if cols * 3 > width {
+        panic!("Cannot render table, terminal too narrow.");
+    }
+    let min: usize = width / cols;
+    let remaining: usize = width - min * cols;
+    for i in 0..cols {
+        v.push({
+            if i >= remaining {
+                min
+            } else {
+                min + 1
+            }
+        });
+    }
+    v
+}
+
+fn get_ideal_widths<'a>(term_width: usize, table: &[Cow<'a, str>]) -> Vec<usize> {
+    let cols = 3;
+    divide_term_width_lossless(term_width - cols - 1, cols)
+}
+
 // Unicode table impl
 #[derive(Debug, Default)]
 pub struct UnicodeTable<'a> {
@@ -272,9 +363,9 @@ impl<'a> Table<'a> for UnicodeTable<'a> {
     fn push(&mut self, item: Cow<'a, str>) {
         let len = self.table.len();
         if len == self.cur {
-            self.table.push(item);
+            self.table.push(Cow::from(item.trim().to_string()));
         } else {
-            self.table[self.cur].to_mut().push_str(&item);
+            self.table[self.cur].to_mut().push_str(&item.trim());
         }
     }
 }

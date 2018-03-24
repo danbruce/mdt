@@ -76,7 +76,7 @@ Tables:
 | Feature     | Working                                                             | Other |
 | ----------- | ------------------------------------------------------------------- | ----- |
 | paragraphs  | foo other stuff that will run on and on and on and on and on and on | foo   |
-| rule        | done                                                                | foo   |
+| rule        | done           | foo   |
 | headers     | done                                                                | foo   |
 | lists       | done                                                                | foo   |
 | bold        | done                                                                | foo   |
